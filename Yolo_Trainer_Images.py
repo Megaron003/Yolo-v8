@@ -95,7 +95,7 @@ def treinar_modelo():
     # Configurações de treinamento (otimizadas)
     config_treinamento = {
         'data': data_yaml,           # Arquivo de configuração
-        'epochs': 50,                # Reduzido para teste
+        'epochs': 350,               # Reduzido para teste
         'imgsz': 640,                # Tamanho da imagem
         'batch': 8,                  # Reduzido para evitar memory errors
         'patience': 15,              # Parada antecipada
