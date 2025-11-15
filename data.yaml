@@ -1,0 +1,8 @@
+names:
+  0: estrutura_0
+  1: estrutura_1
+nc: 2
+path: C:\Users\GuilhermeBragadoVale\Downloads\axial MRI.v2-release.yolov8
+test: test
+train: train
+val: valid

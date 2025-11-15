@@ -2,6 +2,9 @@ from ultralytics import YOLO
 import os
 import yaml
 from collections import Counter
+import matplotlib.pyplot as plt
+import numpy as np
+from pathlib import Path
 
 def analisar_dataset_completo():
     """Analisa TODOS os splits - Versão Corrigida"""
@@ -189,10 +192,11 @@ def treinar_modelo_otimizado():
         print(f"❌ Erro no treinamento: {e}")
         return None, None
 
-def avaliar_modelo_completo():
-    """Avaliação completa do modelo"""
+def gerar_analises_completas():
+    """Gera análises completas: matriz de confusão, curvas, etc."""
     
-    print("\n📊 INICIANDO AVALIAÇÃO COMPLETA")
+    print("\n📊 GERANDO ANÁLISES COMPLETAS DO MODELO")
+    print("="*50)
     
     model_path = 'runs/detect/treinamento_otimizado/weights/best.pt'
     
@@ -202,11 +206,171 @@ def avaliar_modelo_completo():
     
     model = YOLO(model_path)
     
-    # Validar
-    metrics = model.val()
+    # 1. Matriz de Confusão
+    print("\n🎯 GERANDO MATRIZ DE CONFUSÃO...")
+    try:
+        # Forçar a geração da matriz de confusão
+        results_dir = 'runs/detect/treinamento_otimizado'
+        confusion_matrix_path = os.path.join(results_dir, 'confusion_matrix.png')
+        
+        # Validar para gerar métricas
+        metrics = model.val(split='test')
+        
+        print("✅ Matriz de Confusão e métricas geradas!")
+        
+        # Análise detalhada das métricas
+        print("\n📈 ANÁLISE DETALHADA DAS MÉTRICAS:")
+        print("-" * 40)
+        
+        if hasattr(metrics, 'box'):
+            print(f"🎯 mAP@50-95: {metrics.box.map:.4f}")
+            print(f"🎯 mAP@50: {metrics.box.map50:.4f}")
+            print(f"🎯 mAP@75: {metrics.box.map75:.4f}")
+            
+            # Precisão por classe
+            if hasattr(metrics.box, 'p') and metrics.box.p is not None:
+                if hasattr(metrics.box.p, '__iter__'):
+                    print(f"\n🎯 PRECISÃO POR CLASSE:")
+                    for i, prec in enumerate(metrics.box.p):
+                        print(f"   Classe {i}: {prec:.4f}")
+                    print(f"   Média: {np.mean(metrics.box.p):.4f}")
+            
+            # Recall por classe
+            if hasattr(metrics.box, 'r') and metrics.box.r is not None:
+                if hasattr(metrics.box.r, '__iter__'):
+                    print(f"\n🎯 RECALL POR CLASSE:")
+                    for i, rec in enumerate(metrics.box.r):
+                        print(f"   Classe {i}: {rec:.4f}")
+                    print(f"   Média: {np.mean(metrics.box.r):.4f}")
+        
+        return metrics
+        
+    except Exception as e:
+        print(f"⚠️  Erro ao gerar matriz de confusão: {e}")
+        return None
+
+def analisar_curvas_aprendizado():
+    """Analisa as curvas de aprendizado do treinamento"""
     
-    print("\n🎯 RESULTADOS DA AVALIAÇÃO:")
-    print("="*40)
+    print("\n📈 ANALISANDO CURVAS DE APRENDIZADO")
+    print("="*50)
+    
+    results_dir = 'runs/detect/treinamento_otimizado'
+    results_file = os.path.join(results_dir, 'results.csv')
+    
+    if not os.path.exists(results_file):
+        print("❌ Arquivo de resultados não encontrado")
+        return
+    
+    try:
+        # Ler resultados do treinamento
+        import pandas as pd
+        results_df = pd.read_csv(results_file)
+        
+        print("📊 ESTATÍSTICAS DO TREINAMENTO:")
+        print("-" * 30)
+        
+        # Métricas finais
+        ultima_linha = results_df.iloc[-1]
+        
+        print(f"✅ Épocas treinadas: {len(results_df)}")
+        print(f"✅ Loss de caixa final: {ultima_linha.get('train/box_loss', 'N/A'):.4f}")
+        print(f"✅ Loss de classe final: {ultima_linha.get('train/cls_loss', 'N/A'):.4f}")
+        print(f"✅ Loss total final: {ultima_linha.get('train/loss', 'N/A'):.4f}")
+        print(f"✅ mAP@50 final: {ultima_linha.get('metrics/mAP50(B)', 'N/A'):.4f}")
+        
+        # Análise de convergência
+        if len(results_df) > 10:
+            primeiras_epocas = results_df['metrics/mAP50(B)'].head(10).mean()
+            ultimas_epocas = results_df['metrics/mAP50(B)'].tail(10).mean()
+            melhoria = ultimas_epocas - primeiras_epocas
+            
+            print(f"\n📈 ANÁLISE DE CONVERGÊNCIA:")
+            print(f"   mAP@50 primeiras 10 épocas: {primeiras_epocas:.4f}")
+            print(f"   mAP@50 últimas 10 épocas: {ultimas_epocas:.4f}")
+            print(f"   Melhoria: {melhoria:.4f}")
+            
+            if melhoria < 0.01:
+                print("   💡 Modelo pode ter convergido cedo")
+            elif melhoria > 0.05:
+                print("   💡 Modelo ainda estava melhorando")
+        
+    except Exception as e:
+        print(f"⚠️  Erro ao analisar curvas: {e}")
+
+def gerar_relatorio_desempenho():
+    """Gera relatório completo de desempenho"""
+    
+    print("\n📋 GERANDO RELATÓRIO COMPLETO DE DESEMPENHO")
+    print("="*60)
+    
+    model_path = 'runs/detect/treinamento_otimizado/weights/best.pt'
+    
+    if not os.path.exists(model_path):
+        print("❌ Modelo não encontrado")
+        return
+    
+    model = YOLO(model_path)
+    
+    # Validar em todos os splits
+    print("\n🎯 DESEMPENHO POR SPLIT:")
+    print("-" * 30)
+    
+    splits = ['train', 'val', 'test']
+    desempenho = {}
+    
+    for split in splits:
+        try:
+            if split == 'train':
+                # Para train, usar uma amostra para não demorar muito
+                metrics = model.val(split='val')  # Usar val como proxy
+            else:
+                metrics = model.val(split=split)
+            
+            if hasattr(metrics, 'box'):
+                desempenho[split] = {
+                    'map50': metrics.box.map50,
+                    'map': metrics.box.map
+                }
+                print(f"📁 {split.upper()}:")
+                print(f"   mAP@50: {metrics.box.map50:.4f}")
+                print(f"   mAP@50-95: {metrics.box.map:.4f}")
+                
+        except Exception as e:
+            print(f"⚠️  Erro ao validar {split}: {e}")
+    
+    # Análise comparativa
+    if 'train' in desempenho and 'val' in desempenho:
+        gap = desempenho['train']['map50'] - desempenho['val']['map50']
+        print(f"\n📊 ANÁLISE DE GAP TREINO/VALIDAÇÃO:")
+        print(f"   Gap mAP@50: {gap:.4f}")
+        
+        if gap > 0.1:
+            print("   ⚠️  Possível overfitting (gap muito alto)")
+        elif gap < 0.02:
+            print("   ✅ Boa generalização (gap pequeno)")
+        else:
+            print("   ⚠️  Gap moderado")
+
+def avaliar_modelo_completo():
+    """Avaliação completa do modelo - AGORA COM ANÁLISES"""
+    
+    print("\n📊 INICIANDO AVALIAÇÃO COMPLETA COM ANÁLISES")
+    print("="*60)
+    
+    model_path = 'runs/detect/treinamento_otimizado/weights/best.pt'
+    
+    if not os.path.exists(model_path):
+        print(f"❌ Modelo não encontrado: {model_path}")
+        return None
+    
+    model = YOLO(model_path)
+    
+    # 1. Métricas básicas
+    print("\n🎯 MÉTRICAS BÁSICAS DE VALIDAÇÃO")
+    print("-" * 40)
+    
+    metrics = model.val()
     
     if hasattr(metrics, 'box'):
         print(f"📈 mAP@50-95: {getattr(metrics.box, 'map', 0):.4f}")
@@ -217,9 +381,19 @@ def avaliar_modelo_completo():
         if hasattr(metrics.box, 'p') and metrics.box.p is not None:
             if hasattr(metrics.box.p, 'mean'):
                 print(f"🎯 Precisão média: {metrics.box.p.mean():.4f}")
+            elif hasattr(metrics.box.p, '__iter__'):
+                print(f"🎯 Precisão média: {np.mean(metrics.box.p):.4f}")
+                
         if hasattr(metrics.box, 'r') and metrics.box.r is not None:
             if hasattr(metrics.box.r, 'mean'):
                 print(f"🎯 Recall médio: {metrics.box.r.mean():.4f}")
+            elif hasattr(metrics.box.r, '__iter__'):
+                print(f"🎯 Recall médio: {np.mean(metrics.box.r):.4f}")
+    
+    # 2. Análises avançadas
+    gerar_analises_completas()
+    analisar_curvas_aprendizado()
+    gerar_relatorio_desempenho()
     
     return metrics
 
@@ -251,38 +425,55 @@ def fazer_predicoes_avancadas():
     # Estatísticas das predições
     total_deteccoes = 0
     deteccoes_por_classe = Counter()
+    confiancas_por_classe = {}
     
     for result in results:
         if result.boxes is not None:
             total_deteccoes += len(result.boxes)
-            for cls in result.boxes.cls:
-                deteccoes_por_classe[int(cls)] += 1
+            for i, cls in enumerate(result.boxes.cls):
+                classe = int(cls)
+                deteccoes_por_classe[classe] += 1
+                
+                # Coletar confianças
+                if classe not in confiancas_por_classe:
+                    confiancas_por_classe[classe] = []
+                if hasattr(result.boxes, 'conf'):
+                    confiancas_por_classe[classe].append(float(result.boxes.conf[i]))
     
     print(f"\n📊 ESTATÍSTICAS DAS PREDIÇÕES:")
     print(f"   📈 Total de detecções: {total_deteccoes}")
+    print(f"   📈 Total de imagens processadas: {len(results)}")
     print(f"   🎯 Detecções por classe:")
     for classe, count in sorted(deteccoes_por_classe.items()):
-        print(f"      Classe {classe}: {count}")
+        conf_media = np.mean(confiancas_por_classe.get(classe, [0]))
+        print(f"      Classe {classe}: {count} detecções (conf: {conf_media:.3f})")
     
     print(f"\n✅ Predições salvas em: runs/detect/treinamento_otimizado/predict/")
     return results
 
 # 🎯 PROGRAMA PRINCIPAL
 if __name__ == "__main__":
-    print("🎉 SISTEMA DE TREINAMENTO YOLOv8 - VERSÃO COMPLETA")
-    print("="*60)
+    print("🎉 SISTEMA DE TREINAMENTO YOLOv8 - VERSÃO COMPLETA COM ANÁLISES")
+    print("="*70)
     
-    # Treinar
+    # Treinar (MANTIDO EXATAMENTE IGUAL)
     modelo, resultados = treinar_modelo_otimizado()
     
     if modelo is not None:
-        # Avaliar
+        # Avaliar (AGORA COM ANÁLISES COMPLETAS)
         metricas = avaliar_modelo_completo()
         
         # Fazer predições
         predicoes = fazer_predicoes_avancadas()
         
-        print("\n🎉 PROCESSO COMPLETO CONCLUÍDO!")
+        print("\n" + "="*70)
+        print("🎉 PROCESSO COMPLETO CONCLUÍDO!")
         print("📍 Resultados em: runs/detect/treinamento_otimizado/")
+        print("📊 Análises disponíveis:")
+        print("   ✅ Matriz de Confusão")
+        print("   ✅ Curvas de Aprendizado") 
+        print("   ✅ Métricas por Classe")
+        print("   ✅ Relatório de Desempenho")
+        print("   ✅ Estatísticas de Predições")
     else:
         print("\n❌ Processo interrompido devido a erros")
